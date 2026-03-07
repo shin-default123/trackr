@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../app/lib/supabase";
 
 const STATUS_OPTIONS = [
   "Planning",
@@ -32,8 +33,6 @@ const STATUS_EMOJIS = {
   Withdrawn: "🚫",
 };
 
-const STORAGE_KEY = "application-tracker-applications";
-
 function formatDate(dateStr) {
   if (!dateStr) return "—";
   const date = new Date(dateStr);
@@ -42,10 +41,6 @@ function formatDate(dateStr) {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function generateId() {
-  return crypto.randomUUID();
 }
 
 const INITIAL_FORM = {
@@ -64,26 +59,13 @@ export default function HomePage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const [form, setForm] = useState(INITIAL_FORM);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      setApplications(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setApplications([]);
-    } finally {
-      setLoading(false);
-    }
+    fetchApplications();
   }, []);
-
-  useEffect(() => {
-    if (!loading) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(applications));
-    }
-  }, [applications, loading]);
 
   function showToast(message, type = "success") {
     setToast({ message, type });
@@ -120,7 +102,25 @@ export default function HomePage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function handleSubmit(e) {
+  async function fetchApplications() {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("applications")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      showToast(error.message, "error");
+      setApplications([]);
+    } else {
+      setApplications(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault();
 
     if (!form.title.trim()) {
@@ -133,69 +133,86 @@ export default function HomePage() {
       return;
     }
 
+    setSubmitting(true);
+
     if (editingId) {
-      setApplications((prev) =>
-        prev
-          .map((app) =>
-            app.id === editingId
-              ? {
-                  ...app,
-                  title: form.title.trim(),
-                  deadline: form.deadline || null,
-                  category: form.category || null,
-                  status: form.status,
-                  link: form.link.trim() || null,
-                  notes: form.notes.trim() || null,
-                  updated_at: new Date().toISOString(),
-                }
-              : app
-          )
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-      );
+      const { error } = await supabase
+        .from("applications")
+        .update({
+          title: form.title.trim(),
+          deadline: form.deadline || null,
+          category: form.category || null,
+          status: form.status,
+          link: form.link.trim() || null,
+          notes: form.notes.trim() || null,
+        })
+        .eq("id", editingId);
+
+      setSubmitting(false);
+
+      if (error) {
+        showToast(error.message, "error");
+        return;
+      }
 
       showToast("Application updated!");
       resetForm();
+      fetchApplications();
       return;
     }
 
-    const newApp = {
-      id: generateId(),
+    const { error } = await supabase.from("applications").insert({
       title: form.title.trim(),
       deadline: form.deadline || null,
       category: form.category || null,
       status: form.status,
       link: form.link.trim() || null,
       notes: form.notes.trim() || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    });
 
-    setApplications((prev) =>
-      [newApp, ...prev].sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at)
-      )
-    );
+    setSubmitting(false);
+
+    if (error) {
+      showToast(error.message, "error");
+      return;
+    }
 
     showToast("Application added!");
     resetForm();
+    fetchApplications();
   }
 
-  function updateStatus(id, newStatus) {
+  async function updateStatus(id, newStatus) {
+    const oldApplications = applications;
+
     setApplications((prev) =>
       prev.map((app) =>
         app.id === id
-          ? {
-              ...app,
-              status: newStatus,
-              updated_at: new Date().toISOString(),
-            }
+          ? { ...app, status: newStatus }
           : app
       )
     );
+
+    const { error } = await supabase
+      .from("applications")
+      .update({ status: newStatus })
+      .eq("id", id);
+
+    if (error) {
+      setApplications(oldApplications);
+      showToast(error.message, "error");
+    }
   }
 
-  function confirmDelete(id) {
+  async function confirmDelete(id) {
     const wasEditing = editingId === id;
+
+    const { error } = await supabase.from("applications").delete().eq("id", id);
+
+    if (error) {
+      showToast(error.message, "error");
+      return;
+    }
 
     setApplications((prev) => prev.filter((app) => app.id !== id));
     setDeleteConfirmId(null);
@@ -394,9 +411,16 @@ export default function HomePage() {
 
                 <button
                   type="submit"
+                  disabled={submitting}
                   className="rounded-lg bg-blue-500 px-6 py-2.5 font-semibold text-white shadow-md transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {editingId ? "Save Changes" : "Add Application"}
+                  {submitting
+                    ? editingId
+                      ? "Saving..."
+                      : "Adding..."
+                    : editingId
+                    ? "Save Changes"
+                    : "Add Application"}
                 </button>
               </div>
             </form>
