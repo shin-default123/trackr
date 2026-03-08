@@ -13,7 +13,7 @@ const STATUS_OPTIONS = [
   "Withdrawn",
 ];
 
-const CATEGORY_OPTIONS = ["Tech", "NGO", "Fellowship", "Grant", "Other"];
+const CATEGORY_OPTIONS = ["Work", "Hackathon", "Programme/Workshop", "Fellowship", "Grant", "Other"];
 
 const STATUS_COLORS = {
   Planning: "bg-blue-100 text-blue-800",
