@@ -13,7 +13,14 @@ const STATUS_OPTIONS = [
   "Withdrawn",
 ];
 
-const CATEGORY_OPTIONS = ["Work", "Hackathon", "Programme/Workshop", "Fellowship", "Grant", "Other"];
+const CATEGORY_OPTIONS = [
+  "Work",
+  "Hackathon",
+  "Programme/Workshop",
+  "Fellowship",
+  "Grant",
+  "Other",
+];
 
 const STATUS_COLORS = {
   Planning: "bg-blue-100 text-blue-800",
@@ -52,6 +59,39 @@ const INITIAL_FORM = {
   notes: "",
 };
 
+function NotesCell({ notes }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!notes || !notes.trim()) {
+    return <span className="text-slate-400">—</span>;
+  }
+
+  const lines = notes.split("\n").filter((line) => line.trim() !== "");
+  const shouldCollapse = notes.length > 120 || lines.length > 3;
+
+  return (
+    <div className="max-w-xs">
+      <div
+        className={`whitespace-pre-wrap break-words text-sm text-slate-600 ${
+          !expanded && shouldCollapse ? "line-clamp-3" : ""
+        }`}
+      >
+        {notes}
+      </div>
+
+      {shouldCollapse && (
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          className="mt-1 text-xs font-semibold text-blue-600 hover:underline"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +102,12 @@ export default function HomePage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [form, setForm] = useState(INITIAL_FORM);
+
+  const [filters, setFilters] = useState({
+    deadline: "",
+    category: "",
+    status: "",
+  });
 
   useEffect(() => {
     fetchApplications();
@@ -102,6 +148,14 @@ export default function HomePage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function resetFilters() {
+    setFilters({
+      deadline: "",
+      category: "",
+      status: "",
+    });
+  }
+
   async function fetchApplications() {
     setLoading(true);
 
@@ -135,17 +189,19 @@ export default function HomePage() {
 
     setSubmitting(true);
 
+    const payload = {
+      title: form.title.trim(),
+      deadline: form.deadline || null,
+      category: form.category || null,
+      status: form.status,
+      link: form.link.trim() || null,
+      notes: form.notes.trim() || null,
+    };
+
     if (editingId) {
       const { error } = await supabase
         .from("applications")
-        .update({
-          title: form.title.trim(),
-          deadline: form.deadline || null,
-          category: form.category || null,
-          status: form.status,
-          link: form.link.trim() || null,
-          notes: form.notes.trim() || null,
-        })
+        .update(payload)
         .eq("id", editingId);
 
       setSubmitting(false);
@@ -161,14 +217,7 @@ export default function HomePage() {
       return;
     }
 
-    const { error } = await supabase.from("applications").insert({
-      title: form.title.trim(),
-      deadline: form.deadline || null,
-      category: form.category || null,
-      status: form.status,
-      link: form.link.trim() || null,
-      notes: form.notes.trim() || null,
-    });
+    const { error } = await supabase.from("applications").insert(payload);
 
     setSubmitting(false);
 
@@ -186,11 +235,7 @@ export default function HomePage() {
     const oldApplications = applications;
 
     setApplications((prev) =>
-      prev.map((app) =>
-        app.id === id
-          ? { ...app, status: newStatus }
-          : app
-      )
+      prev.map((app) => (app.id === id ? { ...app, status: newStatus } : app))
     );
 
     const { error } = await supabase
@@ -224,24 +269,43 @@ export default function HomePage() {
     showToast("Application deleted");
   }
 
+  const filteredApplications = useMemo(() => {
+    return applications.filter((app) => {
+      const matchesDeadline = filters.deadline
+        ? app.deadline === filters.deadline
+        : true;
+
+      const matchesCategory = filters.category
+        ? app.category === filters.category
+        : true;
+
+      const matchesStatus = filters.status
+        ? app.status === filters.status
+        : true;
+
+      return matchesDeadline && matchesCategory && matchesStatus;
+    });
+  }, [applications, filters]);
+
   const stats = useMemo(() => {
     const counts = {
-      Total: applications.length,
+      Total: filteredApplications.length,
       Planning: 0,
       Applied: 0,
       Interview: 0,
       Offer: 0,
       Rejected: 0,
+      Withdrawn: 0,
     };
 
-    for (const app of applications) {
+    for (const app of filteredApplications) {
       if (counts[app.status] !== undefined) {
         counts[app.status] += 1;
       }
     }
 
     return counts;
-  }, [applications]);
+  }, [filteredApplications]);
 
   return (
     <main className="min-h-screen bg-slate-50 p-6 md:p-10">
@@ -386,21 +450,29 @@ export default function HomePage() {
                 />
               </div>
 
-              <div className="lg:col-span-2">
+              <div className="lg:col-span-3">
                 <label className="mb-1 block text-sm font-medium text-slate-500">
                   Additional Notes
                 </label>
-                <input
-                  type="text"
+                <textarea
                   value={form.notes}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, notes: e.target.value }))
                   }
-                  className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                  rows={6}
+                  placeholder={`You can write multi-line notes here, for example:
+
+• Submitted CV and portfolio
+• Waiting for email confirmation
+• Interview preparation: review project experience`}
+                  className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="mt-1 text-xs text-slate-400">
+                  Tip: You can paste or type bullets like •, -, or numbers.
+                </p>
               </div>
 
-              <div className="flex items-end justify-end gap-2">
+              <div className="lg:col-span-3 flex items-end justify-end gap-2">
                 <button
                   type="button"
                   onClick={resetForm}
@@ -427,7 +499,82 @@ export default function HomePage() {
           </div>
         )}
 
-        <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
+        <div className="mb-6 rounded-2xl bg-white p-4 shadow-lg">
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Filters</h3>
+              <p className="text-sm text-slate-500">
+                Filter applications by deadline, category, and status
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="w-fit rounded-lg bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-300"
+            >
+              Reset Filters
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-500">
+                Filter by Deadline
+              </label>
+              <input
+                type="date"
+                value={filters.deadline}
+                onChange={(e) =>
+                  setFilters((prev) => ({ ...prev, deadline: e.target.value }))
+                }
+                className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-500">
+                Filter by Category
+              </label>
+              <select
+                value={filters.category}
+                onChange={(e) =>
+                  setFilters((prev) => ({ ...prev, category: e.target.value }))
+                }
+                className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All categories</option>
+                {CATEGORY_OPTIONS.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-500">
+                Filter by Status
+              </label>
+              <select
+                value={filters.status}
+                onChange={(e) =>
+                  setFilters((prev) => ({ ...prev, status: e.target.value }))
+                }
+                className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All statuses</option>
+                {STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>
+                    {STATUS_EMOJIS[status]} {status}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
           {Object.entries(stats).map(([label, count]) => (
             <div
               key={label}
@@ -474,25 +621,25 @@ export default function HomePage() {
 
               <tbody>
                 {!loading &&
-                  applications.map((app) => (
+                  filteredApplications.map((app) => (
                     <tr key={app.id} className="border-b border-slate-700/20">
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         <div className="font-medium text-slate-900">
                           {app.title}
                         </div>
                       </td>
 
-                      <td className="px-4 py-3 text-sm text-slate-500">
+                      <td className="px-4 py-3 align-top text-sm text-slate-500">
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
                           {app.category || "—"}
                         </span>
                       </td>
 
-                      <td className="px-4 py-3 text-sm text-slate-500">
+                      <td className="px-4 py-3 align-top text-sm text-slate-500">
                         {formatDate(app.deadline)}
                       </td>
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         <select
                           value={app.status}
                           onChange={(e) => updateStatus(app.id, e.target.value)}
@@ -506,14 +653,11 @@ export default function HomePage() {
                         </select>
                       </td>
 
-                      <td
-                        className="max-w-xs truncate px-4 py-3 text-sm text-slate-500"
-                        title={app.notes || ""}
-                      >
-                        {app.notes || "—"}
+                      <td className="px-4 py-3 align-top">
+                        <NotesCell notes={app.notes} />
                       </td>
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         {app.link ? (
                           <a
                             href={app.link}
@@ -528,16 +672,18 @@ export default function HomePage() {
                         )}
                       </td>
 
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3 align-top text-center">
                         {deleteConfirmId === app.id ? (
                           <div className="flex items-center justify-center gap-2">
                             <button
+                              type="button"
                               onClick={() => confirmDelete(app.id)}
                               className="rounded bg-red-500 px-3 py-1 text-xs font-semibold text-white"
                             >
                               Delete?
                             </button>
                             <button
+                              type="button"
                               onClick={() => setDeleteConfirmId(null)}
                               className="rounded bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
                             >
@@ -547,6 +693,7 @@ export default function HomePage() {
                         ) : (
                           <div className="flex items-center justify-center gap-2">
                             <button
+                              type="button"
                               onClick={() => startEdit(app)}
                               className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-200"
                               title="Edit"
@@ -555,6 +702,7 @@ export default function HomePage() {
                             </button>
 
                             <button
+                              type="button"
                               onClick={() => setDeleteConfirmId(app.id)}
                               className="rounded-lg p-2 text-red-400 transition hover:bg-red-100"
                               title="Delete"
@@ -569,6 +717,18 @@ export default function HomePage() {
               </tbody>
             </table>
           </div>
+
+          {!loading && filteredApplications.length === 0 && applications.length > 0 && (
+            <div className="p-12 text-center">
+              <div className="mb-4 text-5xl">🔎</div>
+              <h3 className="mb-2 text-xl font-semibold text-slate-900">
+                No matching applications
+              </h3>
+              <p className="text-slate-500">
+                Try changing or resetting your filters.
+              </p>
+            </div>
+          )}
 
           {!loading && applications.length === 0 && (
             <div className="p-12 text-center">
