@@ -49,6 +49,35 @@ const STATUS_EMOJIS = {
   Withdrawn: "🚫",
 };
 
+const EVENT_STATUS_OPTIONS = ["Upcoming", "Done", "Cancelled"];
+
+const EVENT_CATEGORY_OPTIONS = [
+  "Meeting",
+  "Deadline",
+  "Workshop",
+  "Conference",
+  "Personal",
+  "Other",
+];
+
+const EVENT_STATUS_COLORS = {
+  Upcoming: "bg-violet-100 text-violet-800",
+  Done: "bg-emerald-100 text-emerald-800",
+  Cancelled: "bg-red-100 text-red-800",
+};
+
+const EVENT_STATUS_DOT_COLORS = {
+  Upcoming: "bg-violet-500",
+  Done: "bg-emerald-500",
+  Cancelled: "bg-red-500",
+};
+
+const EVENT_STATUS_EMOJIS = {
+  Upcoming: "📅",
+  Done: "✅",
+  Cancelled: "❌",
+};
+
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function formatDate(dateStr) {
@@ -147,6 +176,17 @@ const INITIAL_FORM = {
   status: "Planning",
   link: "",
   notes: "",
+  is_important: false,
+};
+
+const INITIAL_EVENT_FORM = {
+  title: "",
+  event_date: "",
+  category: "",
+  status: "Upcoming",
+  link: "",
+  notes: "",
+  is_important: false,
 };
 
 function NotesCell({ notes }) {
@@ -184,12 +224,25 @@ function NotesCell({ notes }) {
 
 export default function HomePage() {
   const [applications, setApplications] = useState([]);
+  const [events, setEvents] = useState([]);
+
   const [loading, setLoading] = useState(true);
+  const [eventLoading, setEventLoading] = useState(true);
+
   const [toast, setToast] = useState(null);
+
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [deleteEventConfirmId, setDeleteEventConfirmId] = useState(null);
+
   const [editingId, setEditingId] = useState(null);
+  const [editingEventId, setEditingEventId] = useState(null);
+
   const [showForm, setShowForm] = useState(false);
+  const [showEventForm, setShowEventForm] = useState(false);
+
   const [submitting, setSubmitting] = useState(false);
+  const [eventSubmitting, setEventSubmitting] = useState(false);
+
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState("applications");
 
@@ -197,11 +250,14 @@ export default function HomePage() {
   const [calendarMonth, setCalendarMonth] = useState(
     new Date(today.getFullYear(), today.getMonth(), 1)
   );
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState(toDateKey(today));
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(
+    toDateKey(today)
+  );
 
   const filterRef = useRef(null);
 
   const [form, setForm] = useState(INITIAL_FORM);
+  const [eventForm, setEventForm] = useState(INITIAL_EVENT_FORM);
 
   const [filters, setFilters] = useState({
     month: "",
@@ -212,6 +268,7 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchApplications();
+    fetchEvents();
   }, []);
 
   useEffect(() => {
@@ -236,11 +293,27 @@ export default function HomePage() {
     setShowForm(false);
   }
 
+  function resetEventForm() {
+    setEventForm(INITIAL_EVENT_FORM);
+    setEditingEventId(null);
+    setShowEventForm(false);
+  }
+
   function openAddForm() {
     setEditingId(null);
     setForm(INITIAL_FORM);
     setDeleteConfirmId(null);
     setShowForm(true);
+    setShowEventForm(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openAddEventForm() {
+    setEditingEventId(null);
+    setEventForm(INITIAL_EVENT_FORM);
+    setDeleteEventConfirmId(null);
+    setShowEventForm(true);
+    setShowForm(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -248,6 +321,7 @@ export default function HomePage() {
     setEditingId(app.id);
     setDeleteConfirmId(null);
     setShowForm(true);
+    setShowEventForm(false);
     setActiveTab("applications");
     setForm({
       title: app.title || "",
@@ -256,6 +330,26 @@ export default function HomePage() {
       status: app.status || "Planning",
       link: app.link || "",
       notes: app.notes || "",
+      is_important: !!app.is_important,
+    });
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function startEditEvent(eventItem) {
+    setEditingEventId(eventItem.id);
+    setDeleteEventConfirmId(null);
+    setShowEventForm(true);
+    setShowForm(false);
+    setActiveTab("events");
+    setEventForm({
+      title: eventItem.title || "",
+      event_date: eventItem.event_date || "",
+      category: eventItem.category || "",
+      status: eventItem.status || "Upcoming",
+      link: eventItem.link || "",
+      notes: eventItem.notes || "",
+      is_important: !!eventItem.is_important,
     });
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -316,6 +410,24 @@ export default function HomePage() {
     setLoading(false);
   }
 
+  async function fetchEvents() {
+    setEventLoading(true);
+
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      showToast(error.message, "error");
+      setEvents([]);
+    } else {
+      setEvents(data || []);
+    }
+
+    setEventLoading(false);
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
 
@@ -338,6 +450,7 @@ export default function HomePage() {
       status: form.status,
       link: form.link.trim() || null,
       notes: form.notes.trim() || null,
+      is_important: !!form.is_important,
     };
 
     if (editingId) {
@@ -373,6 +486,64 @@ export default function HomePage() {
     fetchApplications();
   }
 
+  async function handleEventSubmit(e) {
+    e.preventDefault();
+
+    if (!eventForm.title.trim()) {
+      showToast("Event title is required.", "error");
+      return;
+    }
+
+    if (!eventForm.event_date) {
+      showToast("Event date is required.", "error");
+      return;
+    }
+
+    setEventSubmitting(true);
+
+    const payload = {
+      title: eventForm.title.trim(),
+      event_date: eventForm.event_date,
+      category: eventForm.category || null,
+      status: eventForm.status,
+      link: eventForm.link.trim() || null,
+      notes: eventForm.notes.trim() || null,
+      is_important: !!eventForm.is_important,
+    };
+
+    if (editingEventId) {
+      const { error } = await supabase
+        .from("events")
+        .update(payload)
+        .eq("id", editingEventId);
+
+      setEventSubmitting(false);
+
+      if (error) {
+        showToast(error.message, "error");
+        return;
+      }
+
+      showToast("Event updated!");
+      resetEventForm();
+      fetchEvents();
+      return;
+    }
+
+    const { error } = await supabase.from("events").insert(payload);
+
+    setEventSubmitting(false);
+
+    if (error) {
+      showToast(error.message, "error");
+      return;
+    }
+
+    showToast("Event added!");
+    resetEventForm();
+    fetchEvents();
+  }
+
   async function updateStatus(id, newStatus) {
     const oldApplications = applications;
 
@@ -387,6 +558,26 @@ export default function HomePage() {
 
     if (error) {
       setApplications(oldApplications);
+      showToast(error.message, "error");
+    }
+  }
+
+  async function updateEventStatus(id, newStatus) {
+    const oldEvents = events;
+
+    setEvents((prev) =>
+      prev.map((eventItem) =>
+        eventItem.id === id ? { ...eventItem, status: newStatus } : eventItem
+      )
+    );
+
+    const { error } = await supabase
+      .from("events")
+      .update({ status: newStatus })
+      .eq("id", id);
+
+    if (error) {
+      setEvents(oldEvents);
       showToast(error.message, "error");
     }
   }
@@ -411,6 +602,26 @@ export default function HomePage() {
     showToast("Application deleted");
   }
 
+  async function confirmDeleteEvent(id) {
+    const wasEditing = editingEventId === id;
+
+    const { error } = await supabase.from("events").delete().eq("id", id);
+
+    if (error) {
+      showToast(error.message, "error");
+      return;
+    }
+
+    setEvents((prev) => prev.filter((eventItem) => eventItem.id !== id));
+    setDeleteEventConfirmId(null);
+
+    if (wasEditing) {
+      resetEventForm();
+    }
+
+    showToast("Event deleted");
+  }
+
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filters.month) count += 1;
@@ -431,9 +642,7 @@ export default function HomePage() {
         ? app.category === filters.category
         : true;
 
-      const matchesStatus = filters.status
-        ? app.status === filters.status
-        : true;
+      const matchesStatus = filters.status ? app.status === filters.status : true;
 
       const matchesMonth = filters.month
         ? app.deadline
@@ -461,18 +670,34 @@ export default function HomePage() {
     });
   }, [applications, filters]);
 
-  const calendarApplications = useMemo(() => {
-    return applications.filter((app) => !!app.deadline);
-  }, [applications]);
+  const calendarItems = useMemo(() => {
+    const applicationItems = applications
+      .filter((app) => !!app.deadline)
+      .map((app) => ({
+        ...app,
+        itemType: "application",
+        calendar_date: app.deadline,
+      }));
+
+    const eventItems = events
+      .filter((eventItem) => !!eventItem.event_date)
+      .map((eventItem) => ({
+        ...eventItem,
+        itemType: "event",
+        calendar_date: eventItem.event_date,
+      }));
+
+    return [...applicationItems, ...eventItems];
+  }, [applications, events]);
 
   const calendarMap = useMemo(() => {
     const map = {};
-    for (const app of calendarApplications) {
-      if (!map[app.deadline]) map[app.deadline] = [];
-      map[app.deadline].push(app);
+    for (const item of calendarItems) {
+      if (!map[item.calendar_date]) map[item.calendar_date] = [];
+      map[item.calendar_date].push(item);
     }
     return map;
-  }, [calendarApplications]);
+  }, [calendarItems]);
 
   const calendarDays = useMemo(() => {
     return getCalendarDays(calendarMonth);
@@ -502,11 +727,11 @@ export default function HomePage() {
             </h1>
           </div>
           <p className="text-lg text-slate-500">
-            Keep track of all your applications
+            Keep track of your applications, events, and deadlines
           </p>
         </header>
 
-        <div className="mb-6 flex flex-wrap items-center gap-1 rounded-xl bg-slate-200 p-1 w-fit">
+        <div className="mb-6 flex w-fit flex-wrap items-center gap-1 rounded-xl bg-slate-200 p-1">
           <button
             type="button"
             onClick={() => setActiveTab("applications")}
@@ -517,6 +742,18 @@ export default function HomePage() {
             }`}
           >
             Applications
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("events")}
+            className={`rounded-lg px-6 py-2.5 text-sm font-semibold transition ${
+              activeTab === "events"
+                ? "bg-blue-500 text-white shadow-sm"
+                : "bg-transparent text-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            Events
           </button>
 
           <button
@@ -536,7 +773,9 @@ export default function HomePage() {
           <>
             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">Applications</h2>
+                <h2 className="text-2xl font-bold text-slate-900">
+                  Applications
+                </h2>
                 <p className="text-sm text-slate-500">
                   View and manage your application progress
                 </p>
@@ -562,7 +801,9 @@ export default function HomePage() {
                   {showFilters && (
                     <div className="absolute right-0 z-30 mt-2 w-[320px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
                       <div className="mb-3 flex items-center justify-between">
-                        <h3 className="text-sm font-bold text-slate-900">Filters</h3>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Filters
+                        </h3>
                         <button
                           type="button"
                           onClick={resetFilters}
@@ -815,6 +1056,27 @@ export default function HomePage() {
                     />
                   </div>
 
+                  <div className="flex items-center gap-3 pt-7">
+                    <input
+                      id="application-important"
+                      type="checkbox"
+                      checked={form.is_important}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          is_important: e.target.checked,
+                        }))
+                      }
+                      className="h-4 w-4"
+                    />
+                    <label
+                      htmlFor="application-important"
+                      className="text-sm font-medium text-slate-600"
+                    >
+                      Mark as important ⭐
+                    </label>
+                  </div>
+
                   <div className="lg:col-span-3">
                     <label className="mb-1 block text-sm font-medium text-slate-500">
                       Additional Notes
@@ -837,7 +1099,7 @@ export default function HomePage() {
                     </p>
                   </div>
 
-                  <div className="lg:col-span-3 flex items-end justify-end gap-2">
+                  <div className="flex items-end justify-end gap-2 lg:col-span-3">
                     <button
                       type="button"
                       onClick={resetForm}
@@ -899,6 +1161,7 @@ export default function HomePage() {
                         <tr key={app.id} className="border-b border-slate-700/20">
                           <td className="px-4 py-3 align-top">
                             <div className="font-medium text-slate-900">
+                              {app.is_important ? "⭐ " : ""}
                               {app.title}
                             </div>
                           </td>
@@ -1022,8 +1285,363 @@ export default function HomePage() {
 
               {applications.length >= 999 && (
                 <div className="bg-amber-100 p-4 text-center text-amber-800">
-                  ⚠️ Maximum limit of 999 applications reached. Please delete some
-                  to add more.
+                  ⚠️ Maximum limit of 999 applications reached. Please delete
+                  some to add more.
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {activeTab === "events" && (
+          <>
+            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Events</h2>
+                <p className="text-sm text-slate-500">
+                  Manage your meetings, workshops, deadlines, and personal events
+                </p>
+              </div>
+
+              {!showEventForm && (
+                <button
+                  type="button"
+                  onClick={openAddEventForm}
+                  className="w-fit rounded-lg bg-blue-500 px-5 py-2.5 font-semibold text-white shadow-md transition hover:-translate-y-0.5 hover:bg-blue-600"
+                >
+                  + Add Event
+                </button>
+              )}
+            </div>
+
+            {showEventForm && (
+              <div className="mb-8 rounded-2xl bg-white p-6 shadow-lg">
+                <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <h3 className="text-xl font-semibold text-slate-900">
+                    {editingEventId ? "Edit Event" : "Add New Event"}
+                  </h3>
+
+                  <button
+                    type="button"
+                    onClick={resetEventForm}
+                    className="w-fit rounded-lg bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-300"
+                  >
+                    {editingEventId ? "Cancel Edit" : "Close"}
+                  </button>
+                </div>
+
+                <form
+                  onSubmit={handleEventSubmit}
+                  className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
+                >
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-500">
+                      Event Title *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={eventForm.title}
+                      onChange={(e) =>
+                        setEventForm((prev) => ({
+                          ...prev,
+                          title: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-500">
+                      Event Date *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={eventForm.event_date}
+                      onChange={(e) =>
+                        setEventForm((prev) => ({
+                          ...prev,
+                          event_date: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-500">
+                      Category
+                    </label>
+                    <select
+                      value={eventForm.category}
+                      onChange={(e) =>
+                        setEventForm((prev) => ({
+                          ...prev,
+                          category: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select a category</option>
+                      {EVENT_CATEGORY_OPTIONS.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-500">
+                      Status
+                    </label>
+                    <select
+                      value={eventForm.status}
+                      onChange={(e) =>
+                        setEventForm((prev) => ({
+                          ...prev,
+                          status: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                    >
+                      {EVENT_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {EVENT_STATUS_EMOJIS[status]} {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-500">
+                      Link
+                    </label>
+                    <input
+                      type="url"
+                      value={eventForm.link}
+                      onChange={(e) =>
+                        setEventForm((prev) => ({
+                          ...prev,
+                          link: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-7">
+                    <input
+                      id="event-important"
+                      type="checkbox"
+                      checked={eventForm.is_important}
+                      onChange={(e) =>
+                        setEventForm((prev) => ({
+                          ...prev,
+                          is_important: e.target.checked,
+                        }))
+                      }
+                      className="h-4 w-4"
+                    />
+                    <label
+                      htmlFor="event-important"
+                      className="text-sm font-medium text-slate-600"
+                    >
+                      Mark as important ⭐
+                    </label>
+                  </div>
+
+                  <div className="lg:col-span-3">
+                    <label className="mb-1 block text-sm font-medium text-slate-500">
+                      Notes
+                    </label>
+                    <textarea
+                      value={eventForm.notes}
+                      onChange={(e) =>
+                        setEventForm((prev) => ({
+                          ...prev,
+                          notes: e.target.value,
+                        }))
+                      }
+                      rows={6}
+                      className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="flex items-end justify-end gap-2 lg:col-span-3">
+                    <button
+                      type="button"
+                      onClick={resetEventForm}
+                      className="rounded-lg bg-slate-200 px-5 py-2.5 font-semibold text-slate-700 shadow-sm transition hover:bg-slate-300"
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={eventSubmitting}
+                      className="rounded-lg bg-blue-500 px-6 py-2.5 font-semibold text-white shadow-md transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {eventSubmitting
+                        ? editingEventId
+                          ? "Saving..."
+                          : "Adding..."
+                        : editingEventId
+                        ? "Save Changes"
+                        : "Add Event"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            <div className="overflow-hidden rounded-2xl bg-white shadow-lg">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-200">
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                        Title
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                        Category
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                        Event Date
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                        Status
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                        Notes
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                        Link
+                      </th>
+                      <th className="px-4 py-3 text-center text-sm font-semibold text-slate-900">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {!eventLoading &&
+                      events.map((eventItem) => (
+                        <tr
+                          key={eventItem.id}
+                          className="border-b border-slate-700/20"
+                        >
+                          <td className="px-4 py-3 align-top">
+                            <div className="font-medium text-slate-900">
+                              {eventItem.is_important ? "⭐ " : ""}
+                              {eventItem.title}
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3 align-top text-sm text-slate-500">
+                            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
+                              {eventItem.category || "—"}
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-3 align-top text-sm text-slate-500">
+                            {formatDate(eventItem.event_date)}
+                          </td>
+
+                          <td className="px-4 py-3 align-top">
+                            <select
+                              value={eventItem.status}
+                              onChange={(e) =>
+                                updateEventStatus(eventItem.id, e.target.value)
+                              }
+                              className={`cursor-pointer rounded-full px-3 py-1 text-xs font-semibold outline-none ${EVENT_STATUS_COLORS[eventItem.status]}`}
+                            >
+                              {EVENT_STATUS_OPTIONS.map((status) => (
+                                <option key={status} value={status}>
+                                  {EVENT_STATUS_EMOJIS[status]} {status}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          <td className="px-4 py-3 align-top">
+                            <NotesCell notes={eventItem.notes} />
+                          </td>
+
+                          <td className="px-4 py-3 align-top">
+                            {eventItem.link ? (
+                              <a
+                                href={eventItem.link}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-sm text-blue-500 hover:underline"
+                              >
+                                🔗 Open
+                              </a>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 align-top text-center">
+                            {deleteEventConfirmId === eventItem.id ? (
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => confirmDeleteEvent(eventItem.id)}
+                                  className="rounded bg-red-500 px-3 py-1 text-xs font-semibold text-white"
+                                >
+                                  Delete?
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteEventConfirmId(null)}
+                                  className="rounded bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => startEditEvent(eventItem)}
+                                  className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-200"
+                                  title="Edit"
+                                >
+                                  ✏️
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDeleteEventConfirmId(eventItem.id)
+                                  }
+                                  className="rounded-lg p-2 text-red-400 transition hover:bg-red-100"
+                                  title="Delete"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {!eventLoading && events.length === 0 && (
+                <div className="p-12 text-center">
+                  <div className="mb-4 text-5xl">📅</div>
+                  <h3 className="mb-2 text-xl font-semibold text-slate-900">
+                    No events yet
+                  </h3>
+                  <p className="text-slate-500">
+                    Click the Add Event button to get started!
+                  </p>
                 </div>
               )}
             </div>
@@ -1035,7 +1653,7 @@ export default function HomePage() {
             <div className="mb-4">
               <h2 className="text-2xl font-bold text-slate-900">Calendar</h2>
               <p className="text-sm text-slate-500">
-                See all application deadlines in a monthly calendar view
+                See all application deadlines and events in one calendar
               </p>
             </div>
 
@@ -1077,7 +1695,7 @@ export default function HomePage() {
                 <div className="grid grid-cols-7">
                   {calendarDays.map(({ date, isCurrentMonth }) => {
                     const dateKey = toDateKey(date);
-                    const dayApps = calendarMap[dateKey] || [];
+                    const dayItems = calendarMap[dateKey] || [];
                     const isToday = isSameDay(date, new Date());
                     const isSelected = selectedCalendarDate === dateKey;
 
@@ -1087,7 +1705,9 @@ export default function HomePage() {
                         type="button"
                         onClick={() => setSelectedCalendarDate(dateKey)}
                         className={`min-h-[118px] border border-slate-100 p-2 text-left transition hover:bg-blue-50 ${
-                          isSelected ? "bg-blue-50 ring-2 ring-inset ring-blue-400" : "bg-white"
+                          isSelected
+                            ? "bg-blue-50 ring-2 ring-inset ring-blue-400"
+                            : "bg-white"
                         }`}
                       >
                         <div className="mb-2 flex items-center justify-between">
@@ -1103,32 +1723,36 @@ export default function HomePage() {
                             {date.getDate()}
                           </span>
 
-                          {dayApps.length > 0 && (
+                          {dayItems.length > 0 && (
                             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
-                              {dayApps.length}
+                              {dayItems.length}
                             </span>
                           )}
                         </div>
 
                         <div className="space-y-1">
-                          {dayApps.slice(0, 3).map((app) => (
+                          {dayItems.slice(0, 3).map((item) => (
                             <div
-                              key={app.id}
+                              key={`${item.itemType}-${item.id}`}
                               className="truncate rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-700"
-                              title={app.title}
+                              title={item.title}
                             >
                               <span
                                 className={`mr-1 inline-block h-2 w-2 rounded-full ${
-                                  STATUS_DOT_COLORS[app.status] || "bg-slate-400"
+                                  item.itemType === "application"
+                                    ? STATUS_DOT_COLORS[item.status] || "bg-slate-400"
+                                    : EVENT_STATUS_DOT_COLORS[item.status] ||
+                                      "bg-slate-400"
                                 }`}
                               />
-                              {app.title}
+                              {item.is_important ? "⭐ " : ""}
+                              {item.title}
                             </div>
                           ))}
 
-                          {dayApps.length > 3 && (
+                          {dayItems.length > 3 && (
                             <div className="text-[11px] font-semibold text-blue-600">
-                              +{dayApps.length - 3} more
+                              +{dayItems.length - 3} more
                             </div>
                           )}
                         </div>
@@ -1146,7 +1770,7 @@ export default function HomePage() {
                       : "Selected date"}
                   </h3>
                   <p className="text-sm text-slate-500">
-                    Applications due on this date
+                    Applications and events on this date
                   </p>
                 </div>
 
@@ -1154,51 +1778,66 @@ export default function HomePage() {
                   <div className="rounded-xl bg-slate-50 p-6 text-center">
                     <div className="mb-2 text-3xl">📅</div>
                     <p className="text-sm text-slate-500">
-                      No application deadlines on this date.
+                      No items on this date.
                     </p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {selectedDateApplications.map((app) => (
+                    {selectedDateApplications.map((item) => (
                       <div
-                        key={app.id}
+                        key={`${item.itemType}-${item.id}`}
                         className="rounded-xl border border-slate-200 p-4"
                       >
                         <div className="mb-2 flex items-start justify-between gap-2">
                           <div>
                             <h4 className="font-semibold text-slate-900">
-                              {app.title}
+                              {item.is_important ? "⭐ " : ""}
+                              {item.title}
                             </h4>
                             <p className="mt-1 text-xs text-slate-500">
-                              {app.category || "No category"}
+                              <span className="font-semibold">
+                                {item.itemType === "application"
+                                  ? "Application"
+                                  : "Event"}
+                              </span>
+                              {" • "}
+                              {item.category || "No category"}
                             </p>
                           </div>
 
                           <span
-                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_COLORS[app.status]}`}
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              item.itemType === "application"
+                                ? STATUS_COLORS[item.status]
+                                : EVENT_STATUS_COLORS[item.status]
+                            }`}
                           >
-                            {app.status}
+                            {item.status}
                           </span>
                         </div>
 
-                        {app.notes && (
+                        {item.notes && (
                           <p className="mb-3 whitespace-pre-wrap text-sm text-slate-600">
-                            {app.notes}
+                            {item.notes}
                           </p>
                         )}
 
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => startEdit(app)}
+                            onClick={() =>
+                              item.itemType === "application"
+                                ? startEdit(item)
+                                : startEditEvent(item)
+                            }
                             className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-200"
                           >
                             Edit
                           </button>
 
-                          {app.link && (
+                          {item.link && (
                             <a
-                              href={app.link}
+                              href={item.link}
                               target="_blank"
                               rel="noreferrer"
                               className="rounded-lg bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-200"
