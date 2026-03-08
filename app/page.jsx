@@ -78,6 +78,21 @@ const EVENT_STATUS_EMOJIS = {
   Cancelled: "❌",
 };
 
+const OWNER_OPTIONS = [
+  { value: "turtle", label: "Turtle", emoji: "🐢" },
+  { value: "whale", label: "Whale", emoji: "🐋" },
+];
+
+const OWNER_EMOJIS = {
+  turtle: "🐢",
+  whale: "🐋",
+};
+
+const OWNER_LABELS = {
+  turtle: "Turtle",
+  whale: "Whale",
+};
+
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function formatDate(dateStr) {
@@ -88,6 +103,45 @@ function formatDate(dateStr) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatDateRange(startDateStr, endDateStr) {
+  if (!startDateStr && !endDateStr) return "—";
+  if (startDateStr && !endDateStr) return formatDate(startDateStr);
+  if (!startDateStr && endDateStr) return formatDate(endDateStr);
+
+  if (startDateStr === endDateStr) {
+    return formatDate(startDateStr);
+  }
+
+  const start = new Date(`${startDateStr}T00:00:00`);
+  const end = new Date(`${endDateStr}T00:00:00`);
+
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const sameMonth = sameYear && start.getMonth() === end.getMonth();
+
+  if (sameMonth) {
+    return `${start.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    })}–${end.toLocaleDateString("en-US", {
+      day: "numeric",
+      year: "numeric",
+    })}`;
+  }
+
+  if (sameYear) {
+    return `${start.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    })} – ${end.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })}`;
+  }
+
+  return `${formatDate(startDateStr)} – ${formatDate(endDateStr)}`;
 }
 
 function parseLocalDate(dateStr) {
@@ -177,16 +231,19 @@ const INITIAL_FORM = {
   link: "",
   notes: "",
   is_important: false,
+  owner: "turtle",
 };
 
 const INITIAL_EVENT_FORM = {
   title: "",
-  event_date: "",
+  start_date: "",
+  end_date: "",
   category: "",
   status: "Upcoming",
   link: "",
   notes: "",
   is_important: false,
+  owner: "turtle",
 };
 
 function NotesCell({ notes }) {
@@ -264,6 +321,7 @@ export default function HomePage() {
     category: "",
     status: "",
     quickDate: "",
+    owner: "",
   });
 
   useEffect(() => {
@@ -331,6 +389,7 @@ export default function HomePage() {
       link: app.link || "",
       notes: app.notes || "",
       is_important: !!app.is_important,
+      owner: app.owner || "turtle",
     });
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -344,12 +403,14 @@ export default function HomePage() {
     setActiveTab("events");
     setEventForm({
       title: eventItem.title || "",
-      event_date: eventItem.event_date || "",
+      start_date: eventItem.start_date || eventItem.event_date || "",
+      end_date: eventItem.end_date || eventItem.event_date || "",
       category: eventItem.category || "",
       status: eventItem.status || "Upcoming",
       link: eventItem.link || "",
       notes: eventItem.notes || "",
       is_important: !!eventItem.is_important,
+      owner: eventItem.owner || "turtle",
     });
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -361,6 +422,7 @@ export default function HomePage() {
       category: "",
       status: "",
       quickDate: "",
+      owner: "",
     });
   }
 
@@ -451,6 +513,7 @@ export default function HomePage() {
       link: form.link.trim() || null,
       notes: form.notes.trim() || null,
       is_important: !!form.is_important,
+      owner: form.owner,
     };
 
     if (editingId) {
@@ -494,8 +557,18 @@ export default function HomePage() {
       return;
     }
 
-    if (!eventForm.event_date) {
-      showToast("Event date is required.", "error");
+    if (!eventForm.start_date) {
+      showToast("Start date is required.", "error");
+      return;
+    }
+
+    if (!eventForm.end_date) {
+      showToast("End date is required.", "error");
+      return;
+    }
+
+    if (eventForm.end_date < eventForm.start_date) {
+      showToast("End date cannot be earlier than start date.", "error");
       return;
     }
 
@@ -503,12 +576,14 @@ export default function HomePage() {
 
     const payload = {
       title: eventForm.title.trim(),
-      event_date: eventForm.event_date,
+      start_date: eventForm.start_date,
+      end_date: eventForm.end_date,
       category: eventForm.category || null,
       status: eventForm.status,
       link: eventForm.link.trim() || null,
       notes: eventForm.notes.trim() || null,
       is_important: !!eventForm.is_important,
+      owner: eventForm.owner,
     };
 
     if (editingEventId) {
@@ -628,6 +703,7 @@ export default function HomePage() {
     if (filters.category) count += 1;
     if (filters.status) count += 1;
     if (filters.quickDate) count += 1;
+    if (filters.owner) count += 1;
     return count;
   }, [filters]);
 
@@ -643,6 +719,8 @@ export default function HomePage() {
         : true;
 
       const matchesStatus = filters.status ? app.status === filters.status : true;
+
+      const matchesOwner = filters.owner ? app.owner === filters.owner : true;
 
       const matchesMonth = filters.month
         ? app.deadline
@@ -666,7 +744,13 @@ export default function HomePage() {
         }
       }
 
-      return matchesCategory && matchesStatus && matchesMonth && matchesQuickDate;
+      return (
+        matchesCategory &&
+        matchesStatus &&
+        matchesOwner &&
+        matchesMonth &&
+        matchesQuickDate
+      );
     });
   }, [applications, filters]);
 
@@ -679,13 +763,30 @@ export default function HomePage() {
         calendar_date: app.deadline,
       }));
 
-    const eventItems = events
-      .filter((eventItem) => !!eventItem.event_date)
-      .map((eventItem) => ({
-        ...eventItem,
-        itemType: "event",
-        calendar_date: eventItem.event_date,
-      }));
+    const eventItems = [];
+
+    for (const eventItem of events) {
+      const startStr = eventItem.start_date || eventItem.event_date;
+      const endStr = eventItem.end_date || eventItem.event_date;
+
+      if (!startStr || !endStr) continue;
+
+      let current = parseLocalDate(startStr);
+      const end = parseLocalDate(endStr);
+
+      if (!current || !end) continue;
+
+      while (current <= end) {
+        eventItems.push({
+          ...eventItem,
+          itemType: "event",
+          calendar_date: toDateKey(current),
+        });
+
+        current = new Date(current);
+        current.setDate(current.getDate() + 1);
+      }
+    }
 
     return [...applicationItems, ...eventItems];
   }, [applications, events]);
@@ -878,7 +979,7 @@ export default function HomePage() {
                         </select>
                       </div>
 
-                      <div>
+                      <div className="mb-4">
                         <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">
                           Status
                         </label>
@@ -896,6 +997,29 @@ export default function HomePage() {
                           {STATUS_OPTIONS.map((status) => (
                             <option key={status} value={status}>
                               {STATUS_EMOJIS[status]} {status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          Owner
+                        </label>
+                        <select
+                          value={filters.owner}
+                          onChange={(e) =>
+                            setFilters((prev) => ({
+                              ...prev,
+                              owner: e.target.value,
+                            }))
+                          }
+                          className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Both people</option>
+                          {OWNER_OPTIONS.map((owner) => (
+                            <option key={owner.value} value={owner.value}>
+                              {owner.emoji} {owner.label}
                             </option>
                           ))}
                         </select>
@@ -919,7 +1043,8 @@ export default function HomePage() {
             {(filters.month ||
               filters.category ||
               filters.status ||
-              filters.quickDate) && (
+              filters.quickDate ||
+              filters.owner) && (
               <div className="mb-4 flex flex-wrap gap-2">
                 {filters.quickDate && (
                   <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
@@ -949,6 +1074,12 @@ export default function HomePage() {
                 {filters.status && (
                   <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
                     Status: {filters.status}
+                  </span>
+                )}
+
+                {filters.owner && (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                    Owner: {OWNER_EMOJIS[filters.owner]} {OWNER_LABELS[filters.owner]}
                   </span>
                 )}
               </div>
@@ -1037,6 +1168,25 @@ export default function HomePage() {
                       {STATUS_OPTIONS.map((status) => (
                         <option key={status} value={status}>
                           {STATUS_EMOJIS[status]} {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-500">
+                      Owner
+                    </label>
+                    <select
+                      value={form.owner}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, owner: e.target.value }))
+                      }
+                      className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                    >
+                      {OWNER_OPTIONS.map((owner) => (
+                        <option key={owner.value} value={owner.value}>
+                          {owner.emoji} {owner.label}
                         </option>
                       ))}
                     </select>
@@ -1135,6 +1285,9 @@ export default function HomePage() {
                         Title
                       </th>
                       <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                        Owner
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
                         Category
                       </th>
                       <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
@@ -1164,6 +1317,13 @@ export default function HomePage() {
                               {app.is_important ? "⭐ " : ""}
                               {app.title}
                             </div>
+                          </td>
+
+                          <td className="px-4 py-3 align-top text-sm text-slate-500">
+                            <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+                              {OWNER_EMOJIS[app.owner || "turtle"]}{" "}
+                              {OWNER_LABELS[app.owner || "turtle"]}
+                            </span>
                           </td>
 
                           <td className="px-4 py-3 align-top text-sm text-slate-500">
@@ -1354,16 +1514,36 @@ export default function HomePage() {
 
                   <div>
                     <label className="mb-1 block text-sm font-medium text-slate-500">
-                      Event Date *
+                      Start Date *
                     </label>
                     <input
                       type="date"
                       required
-                      value={eventForm.event_date}
+                      value={eventForm.start_date}
                       onChange={(e) =>
                         setEventForm((prev) => ({
                           ...prev,
-                          event_date: e.target.value,
+                          start_date: e.target.value,
+                          end_date: prev.end_date || e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-500">
+                      End Date *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={eventForm.end_date}
+                      min={eventForm.start_date || undefined}
+                      onChange={(e) =>
+                        setEventForm((prev) => ({
+                          ...prev,
+                          end_date: e.target.value,
                         }))
                       }
                       className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
@@ -1410,6 +1590,28 @@ export default function HomePage() {
                       {EVENT_STATUS_OPTIONS.map((status) => (
                         <option key={status} value={status}>
                           {EVENT_STATUS_EMOJIS[status]} {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-500">
+                      Owner
+                    </label>
+                    <select
+                      value={eventForm.owner}
+                      onChange={(e) =>
+                        setEventForm((prev) => ({
+                          ...prev,
+                          owner: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border-2 border-slate-200 bg-slate-50 px-4 py-2.5 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500"
+                    >
+                      {OWNER_OPTIONS.map((owner) => (
+                        <option key={owner.value} value={owner.value}>
+                          {owner.emoji} {owner.label}
                         </option>
                       ))}
                     </select>
@@ -1506,10 +1708,13 @@ export default function HomePage() {
                         Title
                       </th>
                       <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
+                        Owner
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
                         Category
                       </th>
                       <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
-                        Event Date
+                        Event Dates
                       </th>
                       <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
                         Status
@@ -1541,13 +1746,23 @@ export default function HomePage() {
                           </td>
 
                           <td className="px-4 py-3 align-top text-sm text-slate-500">
+                            <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+                              {OWNER_EMOJIS[eventItem.owner || "turtle"]}{" "}
+                              {OWNER_LABELS[eventItem.owner || "turtle"]}
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-3 align-top text-sm text-slate-500">
                             <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
                               {eventItem.category || "—"}
                             </span>
                           </td>
 
                           <td className="px-4 py-3 align-top text-sm text-slate-500">
-                            {formatDate(eventItem.event_date)}
+                            {formatDateRange(
+                              eventItem.start_date || eventItem.event_date,
+                              eventItem.end_date || eventItem.event_date
+                            )}
                           </td>
 
                           <td className="px-4 py-3 align-top">
@@ -1733,7 +1948,7 @@ export default function HomePage() {
                         <div className="space-y-1">
                           {dayItems.slice(0, 3).map((item) => (
                             <div
-                              key={`${item.itemType}-${item.id}`}
+                              key={`${item.itemType}-${item.id}-${item.calendar_date}`}
                               className="truncate rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-700"
                               title={item.title}
                             >
@@ -1745,6 +1960,7 @@ export default function HomePage() {
                                       "bg-slate-400"
                                 }`}
                               />
+                              {OWNER_EMOJIS[item.owner || "turtle"]}{" "}
                               {item.is_important ? "⭐ " : ""}
                               {item.title}
                             </div>
@@ -1785,12 +2001,13 @@ export default function HomePage() {
                   <div className="space-y-3">
                     {selectedDateApplications.map((item) => (
                       <div
-                        key={`${item.itemType}-${item.id}`}
+                        key={`${item.itemType}-${item.id}-${item.calendar_date}`}
                         className="rounded-xl border border-slate-200 p-4"
                       >
                         <div className="mb-2 flex items-start justify-between gap-2">
                           <div>
                             <h4 className="font-semibold text-slate-900">
+                              {OWNER_EMOJIS[item.owner || "turtle"]}{" "}
                               {item.is_important ? "⭐ " : ""}
                               {item.title}
                             </h4>
@@ -1801,7 +2018,18 @@ export default function HomePage() {
                                   : "Event"}
                               </span>
                               {" • "}
+                              {OWNER_LABELS[item.owner || "turtle"]}
+                              {" • "}
                               {item.category || "No category"}
+                              {item.itemType === "event" && (
+                                <>
+                                  {" • "}
+                                  {formatDateRange(
+                                    item.start_date || item.event_date,
+                                    item.end_date || item.event_date
+                                  )}
+                                </>
+                              )}
                             </p>
                           </div>
 
